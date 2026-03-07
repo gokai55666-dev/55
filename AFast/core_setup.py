@@ -173,3 +173,15 @@ def list_all_models():
     print("LLMs:", list(LLM_MODELS))
     print("NSFW LoRAs:", NSFW_LORAS)
     print("Face Embeddings:", FACE_EMBEDDINGS)
+
+from interfaces.core_setup import MODELS, NSFW_LORAS, WAN2_MODELS
+import subprocess
+
+def download_models():
+    """Download all models and NSFW LoRAs automatically."""
+    base_path = MODELS["diffusion"]
+    for model_url in WAN2_MODELS:
+        subprocess.run(f"wget -c {model_url} -P {base_path}", shell=True)
+
+    for lora in NSFW_LORAS:
+        subprocess.run(f"wget -c https://example.com/loras/{lora} -P {base_path}/loras", shell=True)
