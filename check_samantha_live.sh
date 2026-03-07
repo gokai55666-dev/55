@@ -1,38 +1,45 @@
 #!/bin/bash
-
 AI_SYSTEM="/root/ai_system"
 MODEL_NAME="Samantha-1.11-70B-GGUF"
-REFRESH_INTERVAL=3  # seconds between updates
+LOG_FILE="$AI_SYSTEM/check_samantha_live.log"
 
-cd "$AI_SYSTEM/$MODEL_NAME" || { echo "ERROR: Cannot cd to $MODEL_NAME"; exit 1; }
+cd "$AI_SYSTEM/$MODEL_NAME" || { echo "ERROR: Cannot cd to $MODEL_NAME"; exit 2; }
+
+echo "[LIVE] Starting live Samantha LFS monitor. Press Ctrl+C to stop."
+echo "[LIVE] Logging to $LOG_FILE"
 
 while true; do
     clear
-    echo "[LIVE PROGRESS] Samantha compile/download status (refresh every $REFRESH_INTERVAL sec)"
+    echo "[LIVE] Checking Samantha compile/download status..."
     
     TOTAL=$(git lfs ls-files -n | wc -l)
     COUNT=0
-    COMPLETED=0
-    
+    MISSING=0
+
     for FILE in $(git lfs ls-files -n); do
         COUNT=$((COUNT + 1))
         if [ -f "$FILE" ]; then
             STATUS="✅ READY"
-            COMPLETED=$((COMPLETED + 1))
         else
             STATUS="⏳ MISSING"
+            MISSING=$((MISSING + 1))
         fi
         PERCENT=$((COUNT * 100 / TOTAL))
-        echo "[$PERCENT%] ($COUNT/$TOTAL) $FILE - $STATUS"
+        LINE="[$PERCENT%] ($COUNT/$TOTAL) $FILE - $STATUS"
+        echo "$LINE"
+        echo "$LINE" >> "$LOG_FILE"
     done
 
-    echo
-    echo "[SUMMARY] $COMPLETED/$TOTAL files complete."
+    echo "[LIVE] Check complete. Missing files: $MISSING"
     
-    if [ "$COMPLETED" -eq "$TOTAL" ]; then
-        echo "[LIVE PROGRESS] All files are now downloaded/compiled ✅"
-        break
+    # Exit with non-zero if any missing
+    if [ "$MISSING" -gt 0 ]; then
+        EXIT_CODE=1
+    else
+        EXIT_CODE=0
     fi
 
-    sleep $REFRESH_INTERVAL
+    sleep 5
 done
+
+exit $EXIT_CODE
