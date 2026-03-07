@@ -1,16 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-# -----------------------------
-# User variables
-# -----------------------------
+# Directory where Samantha will be installed
 INSTALL_DIR="/root/ai_system"
-SAMANTHA_INSTALLER_URL="https://raw.githubusercontent.com/gokai55666-dev/55/main/install_samantha_nsafw_fixed.sh"
-FRONTEND_URL="https://raw.githubusercontent.com/gokai55666-dev/55/main/ai_frontend_improved.py"
+SAMANTHA_DIR="$INSTALL_DIR/Samantha-1.11-70B-GGUF"
 
-# -----------------------------
-# Create main directory
-# -----------------------------
+echo "[INFO] Creating installation directory..."
 mkdir -p "$INSTALL_DIR"
 cd "$INSTALL_DIR"
 
@@ -25,31 +20,40 @@ apt install -y git-lfs python3-pip wget curl unzip ffmpeg
 python3 -m pip install --upgrade pip
 
 # -----------------------------
-# Install Python packages
+# Initialize Git LFS
 # -----------------------------
-echo "[INFO] Installing Python packages..."
-pip install torch diffusers transformers accelerate safetensors fastapi uvicorn python-multipart gradio
+git lfs install
 
 # -----------------------------
-# Download and run Samantha installer
+# Download Samantha model
 # -----------------------------
-echo "[INFO] Downloading Samantha NSFW installer..."
-wget -O "$INSTALL_DIR/install_samantha_nsafw.sh" "$SAMANTHA_INSTALLER_URL"
-chmod +x "$INSTALL_DIR/install_samantha_nsafw.sh"
+if [ ! -d "$SAMANTHA_DIR" ]; then
+    echo "[INFO] Cloning Samantha NSFW model..."
+    git clone https://huggingface.co/TheBloke/Samantha-1.11-70B-GGUF "$SAMANTHA_DIR"
+else
+    echo "[INFO] Samantha model already exists, skipping download."
+fi
 
-echo "[INFO] Running Samantha NSFW installer..."
-./install_samantha_nsafw.sh || echo "[WARN] Installer finished with errors, check the script"
+# -----------------------------
+# Create Ollama Modelfile
+# -----------------------------
+cat > "$INSTALL_DIR/Samantha-Modelfile" << EOF
+FROM ./Samantha-1.11-70B-GGUF.gguf
+PARAMETER temperature 0.8
+EOF
 
 # -----------------------------
-# Download improved AI frontend
+# Create Ollama model
 # -----------------------------
-echo "[INFO] Downloading Improved AI Frontend..."
-wget -O "$INSTALL_DIR/ai_frontend_improved.py" "$FRONTEND_URL"
-chmod +x "$INSTALL_DIR/ai_frontend_improved.py"
+if ! ollama list | grep -q "samantha-uncensored"; then
+    echo "[INFO] Creating Ollama Samantha NSFW model..."
+    ollama create samantha-uncensored -f "$INSTALL_DIR/Samantha-Modelfile"
+else
+    echo "[INFO] Ollama Samantha model already exists, skipping creation."
+fi
 
 # -----------------------------
 # Done
 # -----------------------------
-echo "[INFO] Installation complete!"
-echo "Run the frontend with:"
-echo "cd $INSTALL_DIR && python3 ai_frontend_improved.py --desktop"
+echo "[INFO] Samantha NSFW installer finished successfully!"
+echo "You can now start your Ollama server with: nohup ollama serve &"
