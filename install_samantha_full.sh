@@ -1,113 +1,72 @@
 #!/bin/bash
 set -euo pipefail
 
-# -----------------------------
-# VARIABLES
-# -----------------------------
-INSTALL_DIR="/root/ai_system"
-MODEL_NAME="Samantha-1.11-70B-GGUF"
-OLLAMA_MODEL="samantha-uncensored"
-MAX_RETRIES=10
-SLEEP_BETWEEN=30  # seconds between retries
-LOG_FILE="$INSTALL_DIR/install_samantha_full.log"
+LOGFILE="/root/ai_system/install_samantha_full.log"
+mkdir -p /root/ai_system
+cd /root/ai_system
 
-mkdir -p "$INSTALL_DIR"
-cd "$INSTALL_DIR"
+echo "[INFO] Starting full Samantha installer..." | tee -a "$LOGFILE"
 
 # -----------------------------
-# Function: Kill zombie processes
+# Kill specific zombie processes
 # -----------------------------
-fix_zombies() {
-    ZOMBIES=$(ps -eo stat,pid,ppid,cmd | awk '$1 ~ /Z/ {print $2}')
-    if [ -n "$ZOMBIES" ]; then
-        echo "[INFO] Found zombie processes: $ZOMBIES"
-        for PID in $ZOMBIES; do
-            PPID=$(ps -p $PID -o ppid= | tr -d ' ')
-            echo "[INFO] Killing parent of zombie PID $PID (PPID $PPID)"
-            kill -9 $PPID 2>/dev/null || true
-        done
-        echo "[INFO] Zombies fixed."
-    else
-        echo "[INFO] No zombie processes found."
-    fi
-}
-
-# -----------------------------
-# Function: Persistent LFS download
-# -----------------------------
-download_lfs() {
-    local attempt=1
-    while [ $attempt -le $MAX_RETRIES ]; do
-        echo "[INFO] LFS download attempt $attempt/$MAX_RETRIES..."
-        git lfs fetch --all --include="*"
-        git lfs checkout
-
-        PARTS=$(ls *.gguf 2>/dev/null | wc -l)
-        echo "[INFO] GGUF parts present: $PARTS/14"
-        if [ "$PARTS" -eq 14 ]; then
-            echo "[INFO] All 14 GGUF parts downloaded!"
-            return 0
-        fi
-
-        echo "[WARN] Incomplete download. Retrying in $SLEEP_BETWEEN seconds..."
-        sleep $SLEEP_BETWEEN
-        attempt=$((attempt+1))
-    done
-
-    echo "[ERROR] Failed to download all parts after $MAX_RETRIES attempts."
-    return 1
-}
-
-# -----------------------------
-# MAIN INSTALLER
-# -----------------------------
-echo "[INFO] Running full Samantha installer..." | tee -a "$LOG_FILE"
-
-# Step 1: Kill zombies
-fix_zombies | tee -a "$LOG_FILE"
-
-# Step 2: Remove old model if exists
-if [ -d "$MODEL_NAME" ]; then
-    echo "[INFO] Removing old model folder..." | tee -a "$LOG_FILE"
-    rm -rf "$MODEL_NAME"
+echo "[INFO] Checking for zombie processes..." | tee -a "$LOGFILE"
+ZOMBIES=$(ps -e -o stat,pid | awk '$1=="Z" {print $2}')
+if [ -n "$ZOMBIES" ]; then
+    echo "[INFO] Killing zombies: $ZOMBIES" | tee -a "$LOGFILE"
+    kill -9 $ZOMBIES || true
+else
+    echo "[INFO] No zombies found" | tee -a "$LOGFILE"
 fi
 
-# Step 3: Clone model repo
-echo "[INFO] Cloning Samantha repository..." | tee -a "$LOG_FILE"
-git clone https://huggingface.co/TheBloke/$MODEL_NAME
-cd "$MODEL_NAME"
+# -----------------------------
+# Install system dependencies
+# -----------------------------
+echo "[INFO] Installing system dependencies..." | tee -a "$LOGFILE"
+apt update -qq
+apt install -y git git-lfs python3-pip wget curl unzip ffmpeg || true
+python3 -m pip install --upgrade pip
 
-# Step 4: Configure Git LFS for parallel downloads
 git lfs install
 git config lfs.concurrenttransfers 14
 git config lfs.activitytimeout 3600
 
-# Step 5: Persistent LFS download in background
-echo "[INFO] Starting LFS download in background..." | tee -a "$LOG_FILE"
-nohup bash -c 'download_lfs' > "$LOG_FILE" 2>&1 &
+# -----------------------------
+# Download Samantha repo via GitHub
+# -----------------------------
+MODEL_NAME="Samantha-1.11-70B-GGUF"
+if [ ! -d "$MODEL_NAME" ]; then
+    echo "[INFO] Cloning Samantha repo..." | tee -a "$LOGFILE"
+    git clone https://huggingface.co/TheBloke/$MODEL_NAME || true
+fi
 
-# Step 6: Wait until all GGUF files exist, then create Ollama model
-(
-    while [ "$(ls *.gguf 2>/dev/null | wc -l)" -lt 14 ]; do
-        echo "[INFO] Waiting for all 14 GGUF parts..."
-        sleep 15
-    done
+cd "$MODEL_NAME"
 
-    echo "[INFO] All GGUF files detected. Building Ollama model..." | tee -a "$LOG_FILE"
+echo "[INFO] Fetching all LFS objects in parallel..." | tee -a "$LOGFILE"
+git lfs fetch --all --include="*"
+git lfs checkout
 
-    cd "$INSTALL_DIR"
-    cat > Samantha-Modelfile << EOF
-FROM ./$MODEL_NAME/*.gguf
+cd ..
+
+# -----------------------------
+# Build Ollama Modelfile
+# -----------------------------
+MODFILE="Samantha-Modelfile"
+echo "[INFO] Creating Ollama Modelfile..." | tee -a "$LOGFILE"
+cat > "$MODFILE" << EOF
+FROM ./Samantha-1.11-70B-GGUF.gguf
 PARAMETER temperature 0.8
 EOF
 
-    if ! ollama list | grep -q "$OLLAMA_MODEL"; then
-        echo "[INFO] Creating Ollama model: $OLLAMA_MODEL" | tee -a "$LOG_FILE"
-        ollama create "$OLLAMA_MODEL" -f Samantha-Modelfile
-    else
-        echo "[INFO] Ollama model $OLLAMA_MODEL already exists." | tee -a "$LOG_FILE"
-    fi
-) &
+# -----------------------------
+# Create Ollama model if missing
+# -----------------------------
+if ! ollama list | grep -q "samantha-uncensored"; then
+    echo "[INFO] Creating Ollama model in background..." | tee -a "$LOGFILE"
+    nohup ollama create samantha-uncensored -f "$MODFILE" >> "$LOGFILE" 2>&1 &
+else
+    echo "[INFO] Ollama model already exists" | tee -a "$LOGFILE"
+fi
 
-echo "[INFO] Installer running in background. Monitor progress with:"
-echo "tail -f $LOG_FILE"
+echo "[INFO] Samantha installation started. Monitor with:" | tee -a "$LOGFILE"
+echo "tail -f $LOGFILE"
