@@ -1,4 +1,6 @@
 #!/bin/bash
+# check_samantha_progress.sh
+# Clean, safe script to show download/compile status of Samantha LFS files
 
 AI_SYSTEM="/root/ai_system"
 MODEL_NAME="Samantha-1.11-70B-GGUF"
@@ -13,7 +15,7 @@ TOTAL=$(git lfs ls-files -n | wc -l)
 COUNT=0
 
 # Loop through each LFS file
-for FILE in $(git lfs ls-files -n); do
+git lfs ls-files -n | while read -r FILE; do
     COUNT=$((COUNT + 1))
     if [ -f "$FILE" ]; then
         STATUS="✅ READY"
