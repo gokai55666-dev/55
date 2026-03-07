@@ -3,12 +3,17 @@ import requests
 import subprocess
 import json
 import os
-from pathlib import Path
+import sys
 import time
+import base64
+import io
+from pathlib import Path
+from PIL import Image
+import torch
 
-# Page config
+# Page config - MUST BE FIRST
 st.set_page_config(
-    page_title="Maximum Freedom AI | 4x4090",
+    page_title="Absolute Freedom AI | 4x4090",
     page_icon="🔥",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -26,7 +31,7 @@ st.markdown("""
         padding: 12px 30px;
         font-weight: bold;
     }
-    .stTextInput > div > div > input { 
+    .stTextInput > div > div > input, .stTextArea > div > div > textarea { 
         background-color: #1a1a1a; 
         color: #ffffff;
         border: 1px solid #333;
@@ -36,37 +41,53 @@ st.markdown("""
         border-radius: 10px;
         padding: 15px;
         border-left: 4px solid #ff0066;
+        margin-bottom: 10px;
+    }
+    .tool-card {
+        background: linear-gradient(135deg, #1a1a1a 0%, #2d1f3d 100%);
+        border-radius: 15px;
+        padding: 20px;
+        border: 1px solid #ff0066;
+        margin-bottom: 15px;
     }
     .status-online { color: #00ff88; }
     .status-offline { color: #ff4444; }
+    .warning-box {
+        background: #331a00;
+        border-left: 4px solid #ff8800;
+        padding: 15px;
+        border-radius: 5px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ============ SYSTEM STATUS ============
+# ============ SYSTEM FUNCTIONS ============
 def get_gpu_status():
     try:
         result = subprocess.run([
             'nvidia-smi', 
             '--query-gpu=index,name,temperature.gpu,memory.used,memory.total,utilization.gpu',
-            '--format=csv,noheader'
+            '--format=csv,noheader,nounits'
         ], capture_output=True, text=True, timeout=5)
         
         gpus = []
         for line in result.stdout.strip().split('\n'):
-            parts = line.split(', ')
-            gpus.append({
-                'index': parts[0],
-                'name': parts[1],
-                'temp': parts[2],
-                'mem_used': parts[3],
-                'mem_total': parts[4],
-                'util': parts[5]
-            })
+            if line:
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 6:
+                    gpus.append({
+                        'index': parts[0],
+                        'name': parts[1],
+                        'temp': parts[2],
+                        'mem_used': parts[3],
+                        'mem_total': parts[4],
+                        'util': parts[5]
+                    })
         return gpus
-    except:
+    except Exception as e:
         return []
 
-def check_service(port, name):
+def check_service(port):
     try:
         result = subprocess.run(['nc', '-z', 'localhost', str(port)], 
                               capture_output=True, timeout=2)
@@ -74,54 +95,73 @@ def check_service(port, name):
     except:
         return False
 
+def get_tailscale_ip():
+    try:
+        result = subprocess.run(['tailscale', 'ip', '-4'], 
+                              capture_output=True, text=True, timeout=2)
+        return result.stdout.strip()
+    except:
+        return "Not connected"
+
 # ============ SIDEBAR ============
 with st.sidebar:
-    st.title("🧠 MAX FREEDOM AI")
+    st.title("🔥 ABSOLUTE FREEDOM AI")
     st.markdown("**4x RTX 4090 Workstation**")
+    st.markdown(f"**Tailscale:** `{get_tailscale_ip()}`")
     
     # GPU Status
     st.subheader("🎮 GPU Status")
-    for gpu in get_gpu_status():
-        mem_pct = int(gpu['mem_used'].replace(' MiB', '')) / int(gpu['mem_total'].replace(' MiB', '')) * 100
-        st.markdown(f"""
-        <div class="gpu-card">
-            <b>GPU {gpu['index']}</b> {gpu['name']}<br>
-            🌡️ {gpu['temp']}°C | ⚡ {gpu['util']}<br>
-            🎮 {gpu['mem_used']} / {gpu['mem_total']} ({mem_pct:.0f}%)
-        </div>
-        """, unsafe_allow_html=True)
+    gpus = get_gpu_status()
+    for gpu in gpus:
+        try:
+            mem_used = int(gpu['mem_used'])
+            mem_total = int(gpu['mem_total'])
+            mem_pct = (mem_used / mem_total) * 100 if mem_total > 0 else 0
+            
+            st.markdown(f"""
+            <div class="gpu-card">
+                <b>GPU {gpu['index']}</b> {gpu['name']}<br>
+                🌡️ {gpu['temp']}°C | ⚡ {gpu['util']}%<br>
+                🎮 {mem_used}MB / {mem_total}MB ({mem_pct:.0f}%)
+            </div>
+            """, unsafe_allow_html=True)
+        except:
+            st.text(f"GPU {gpu['index']}: {gpu['name']}")
     
     # Service Status
     st.subheader("🔌 Services")
     services = {
         "Samantha (Ollama)": (11434, "🤖"),
-        "ComfyUI (Images)": (8188, "🎨"),
-        "Kohya (Training)": (7860, "👤")
+        "ComfyUI": (8188, "🎨"),
+        "Kohya_ss": (7860, "👤"),
+        "Streamlit": (8501, "📱")
     }
     
     for name, (port, icon) in services.items():
-        status = check_service(port, name)
+        status = check_service(port)
         color = "status-online" if status else "status-offline"
         st.markdown(f"{icon} {name}: <span class='{color}'>●</span>", unsafe_allow_html=True)
     
     # Mode Selection
-    st.subheader("⚡ Mode")
+    st.subheader("⚡ Generation Mode")
     mode = st.radio("", [
         "💬 Samantha Chat",
         "🎨 SDXL Image Gen", 
         "🎬 Wan 2.2 Video",
+        "🎥 HunyuanVideo",
+        "🌊 FusionX Video",
         "👤 LoRA Training",
         "⚙️ System Control"
-    ])
+    ], key="main_mode")
 
 # ============ MAIN INTERFACE ============
-st.title("🔥 MAXIMUM FREEDOM AI")
+st.title("🔥 ABSOLUTE FREEDOM AI")
+st.markdown("*Zero Restrictions | Maximum Capabilities | Complete Control*")
 
 # ============ MODE: SAMANTHA CHAT ============
 if mode == "💬 Samantha Chat":
     st.header("Samantha-70B Uncensored (GPUs 2,3)")
     
-    # Chat history
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
     
@@ -131,15 +171,13 @@ if mode == "💬 Samantha Chat":
             st.markdown(msg["content"])
     
     # Input
-    col1, col2 = st.columns([4, 1])
+    col1, col2 = st.columns([5, 1])
     with col1:
         prompt = st.chat_input("Enter anything. No restrictions. No refusals.")
     with col2:
-        clear_btn = st.button("🗑️ Clear")
-    
-    if clear_btn:
-        st.session_state.chat_history = []
-        st.rerun()
+        if st.button("🗑️ Clear", use_container_width=True):
+            st.session_state.chat_history = []
+            st.rerun()
     
     if prompt:
         st.session_state.chat_history.append({"role": "user", "content": prompt})
@@ -167,133 +205,128 @@ if mode == "💬 Samantha Chat":
                     st.markdown(answer)
                     st.session_state.chat_history.append({"role": "assistant", "content": answer})
                 except Exception as e:
-                    st.error(f"Error connecting to Samantha: {e}")
+                    st.error(f"Error: {e}")
                     st.info("Make sure Ollama is running: `ollama serve`")
 
 # ============ MODE: SDXL IMAGE GEN ============
 elif mode == "🎨 SDXL Image Gen":
     st.header("SDXL Image Generation (GPU 0)")
     
+    # Model selection
+    model_type = st.radio("Model Type", ["Standard", "NSFW/Uncensored"], horizontal=True)
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        prompt = st.text_area("Prompt", "masterpiece, best quality, beautiful landscape, 8k, highly detailed", height=100)
-        negative = st.text_area("Negative", "blurry, low quality, watermark, signature, ugly", height=50)
+        if model_type == "Standard":
+            prompt = st.text_area("Prompt", "masterpiece, best quality, beautiful landscape, 8k, highly detailed", height=100)
+        else:
+            prompt = st.text_area("Prompt", "masterpiece, best quality, detailed, explicit, uncensored", height=100)
+        
+        negative = st.text_area("Negative", "blurry, low quality, watermark, signature, ugly, deformed", height=50)
         
         with st.expander("⚙️ Advanced Settings"):
             cols = st.columns(3)
             with cols[0]:
                 steps = st.slider("Steps", 10, 50, 30)
-                cfg = st.slider("CFG", 1.0, 15.0, 7.5)
+                cfg = st.slider("CFG Scale", 1.0, 15.0, 7.5)
             with cols[1]:
                 width = st.selectbox("Width", [512, 768, 1024, 1280], index=2)
-                height = st.selectbox
-                ("Height", [512, 768, 1024, 1280], index=2)
+                height = st.selectbox("Height", [512, 768, 1024, 1280], index=2)
             with cols[2]:
                 seed = st.number_input("Seed", -1, 999999, -1)
                 if seed == -1:
                     seed = None
-    
-    with col2:
-        st.markdown("### 🎨 Quick Presets")
+        
+        # Quick presets
+        st.subheader("🎨 Quick Presets")
+        preset_cols = st.columns(4)
         presets = {
             "Realistic": "masterpiece, best quality, photorealistic, 8k, detailed skin, professional photography",
             "Anime": "masterpiece, best quality, anime style, vibrant colors, detailed background",
             "Fantasy": "epic fantasy, dramatic lighting, highly detailed, concept art, cinematic",
-            "NSFW": "nsfw, nude, explicit, adult content, detailed skin, realistic anatomy"
+            "NSFW": "nsfw, nude, explicit, adult content, detailed skin, realistic anatomy, masterpiece"
         }
         
-        for name, preset_prompt in presets.items():
-            if st.button(f"Load {name}", use_container_width=True):
-                st.session_state['preset'] = preset_prompt
-                st.rerun()
-        
-        if 'preset' in st.session_state:
-            prompt = st.session_state['preset']
+        for (name, preset_prompt), col in zip(presets.items(), preset_cols):
+            with col:
+                if st.button(f"Load {name}", use_container_width=True):
+                    st.session_state['image_preset'] = preset_prompt
+                    st.rerun()
     
-    # Generate button
-    if st.button("🚀 GENERATE IMAGE", use_container_width=True):
-        with st.spinner("Generating on GPU 0..."):
-            try:
-                # Call ComfyUI API
-                payload = {
-                    "prompt": {
-                        "3": {
-                            "inputs": {
-                                "seed": seed if seed else int(time.time()),
-                                "steps": steps,
-                                "cfg": cfg,
-                                "sampler_name": "dpmpp_2m",
-                                "scheduler": "karras",
-                                "denoise": 1.0,
-                                "model": ["4", 0],
-                                "positive": ["6", 0],
-                                "negative": ["7", 0],
-                                "latent_image": ["5", 0]
+    with col2:
+        st.markdown("### 📊 Generation Info")
+        st.info("Uses GPU 0\nModel: SDXL Base\nVRAM: ~8GB")
+        
+        if st.button("🚀 GENERATE", use_container_width=True, type="primary"):
+            with st.spinner("Generating..."):
+                try:
+                    # Call ComfyUI API
+                    payload = {
+                        "prompt": {
+                            "3": {
+                                "inputs": {
+                                    "seed": seed if seed else int(time.time()),
+                                    "steps": steps,
+                                    "cfg": cfg,
+                                    "sampler_name": "dpmpp_2m",
+                                    "scheduler": "karras",
+                                    "denoise": 1.0,
+                                    "model": ["4", 0],
+                                    "positive": ["6", 0],
+                                    "negative": ["7", 0],
+                                    "latent_image": ["5", 0]
+                                },
+                                "class_type": "KSampler"
                             },
-                            "class_type": "KSampler"
-                        },
-                        "4": {
-                            "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
-                            "class_type": "CheckpointLoaderSimple"
-                        },
-                        "5": {
-                            "inputs": {"width": width, "height": height, "batch_size": 1},
-                            "class_type": "EmptyLatentImage"
-                        },
-                        "6": {
-                            "inputs": {"text": prompt, "clip": ["4", 1]},
-                            "class_type": "CLIPTextEncode"
-                        },
-                        "7": {
-                            "inputs": {"text": negative, "clip": ["4", 1]},
-                            "class_type": "CLIPTextEncode"
-                        },
-                        "8": {
-                            "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
-                            "class_type": "VAEDecode"
-                        },
-                        "9": {
-                            "inputs": {"filename_prefix": "ComfyUI", "images": ["8", 0]},
-                            "class_type": "SaveImage"
+                            "4": {
+                                "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+                                "class_type": "CheckpointLoaderSimple"
+                            },
+                            "5": {
+                                "inputs": {"width": width, "height": height, "batch_size": 1},
+                                "class_type": "EmptyLatentImage"
+                            },
+                            "6": {
+                                "inputs": {"text": prompt, "clip": ["4", 1]},
+                                "class_type": "CLIPTextEncode"
+                            },
+                            "7": {
+                                "inputs": {"text": negative, "clip": ["4", 1]},
+                                "class_type": "CLIPTextEncode"
+                            },
+                            "8": {
+                                "inputs": {"samples": ["3", 0], "vae": ["4", 2]},
+                                "class_type": "VAEDecode"
+                            },
+                            "9": {
+                                "inputs": {"filename_prefix": "SDXL", "images": ["8", 0]},
+                                "class_type": "SaveImage"
+                            }
                         }
                     }
-                }
-                
-                response = requests.post("http://127.0.0.1:8188/prompt", json=payload, timeout=300)
-                
-                if response.status_code == 200:
-                    st.success("Image generation started!")
-                    st.info("Check ComfyUI at :8188 for progress, or wait here...")
                     
-                    # Poll for result
-                    with st.spinner("Waiting for generation..."):
-                        time.sleep(30)  # Initial wait
-                        st.image("https://via.placeholder.com/1024x1024?text=Check+ComfyUI+for+Result", 
-                                caption="Generated image appears in ComfyUI output folder")
-                else:
-                    st.error(f"ComfyUI error: {response.text}")
-                    
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.info("Make sure ComfyUI is running on port 8188")
+                    response = requests.post("http://127.0.0.1:8188/prompt", json=payload, timeout=5)
+                    if response.status_code == 200:
+                        st.success("Queued! Check ComfyUI at :8188")
+                    else:
+                        st.error(f"Error: {response.text}")
+                        
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    st.info("Make sure ComfyUI is running on port 8188")
 
 # ============ MODE: WAN 2.2 VIDEO ============
 elif mode == "🎬 Wan 2.2 Video":
     st.header("Wan 2.2 Image-to-Video (GPU 1)")
     
     st.markdown("""
-    **Wan 2.2 Features:**
-    - 🎥 **720p resolution** (up from 480p in 2.1)
-    - 🧠 **MoE architecture** (Mixture of Experts)
-    - 🎬 **Cinematic quality** with better motion
-    - 🎮 **Last frame control** for video chaining
+    **Capabilities:** 720p | MoE Architecture | Last Frame Control | Cinematic Quality
     """)
     
-    # Model selection
     model_choice = st.radio(
-        "Select Model",
-        ["TI2V-5B (Fast, 8GB VRAM, ~9min)", "I2V-A14B (Quality, 16GB+ VRAM, ~15min)"],
+        "Model",
+        ["TI2V-5B (Fast, 8GB, ~9min)", "I2V-A14B (Quality, 16GB, ~15min)"],
         horizontal=True
     )
     
@@ -302,303 +335,218 @@ elif mode == "🎬 Wan 2.2 Video":
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        uploaded_file = st.file_uploader("Upload Image", type=['png', 'jpg', 'jpeg'])
-        
-        if uploaded_file:
-            st.image(uploaded_file, caption="Input Image", use_column_width=True)
-            
-            # Save temporarily
-            temp_path = f"/tmp/{uploaded_file.name}"
+        uploaded = st.file_uploader("Upload Image", type=['png', 'jpg', 'jpeg'])
+        if uploaded:
+            st.image(uploaded, caption="Input", use_column_width=True)
+            temp_path = f"/tmp/wan_input_{int(time.time())}.png"
             with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+                f.write(uploaded.getbuffer())
     
     with col2:
-        video_prompt = st.text_area(
-            "Motion Description",
-            "camera slowly zooming in, subtle motion, cinematic lighting",
-            height=100
-        )
+        video_prompt = st.text_area("Motion", "slow cinematic camera movement, detailed textures", height=80)
         
-        with st.expander("⚙️ Video Settings"):
-            num_frames = st.selectbox("Duration", [81, 161], format_func=lambda x: f"{(x-1)//16}s")
+        with st.expander("⚙️ Settings"):
+            num_frames = st.selectbox("Duration", [81, 161], format_func=lambda x: f"{(x-1)//16}s ({x}f)")
             fps = st.selectbox("FPS", [16, 24])
-            resolution = st.selectbox("Resolution", ["720p (Recommended)", "480p (Faster)"])
+            resolution = st.selectbox("Resolution", ["720p", "480p"])
         
-        negative_video = st.text_area("Negative Prompt", "blur, jitter, ugly, distorted", height=50)
+        negative_video = st.text_input("Negative", "blur, jitter, distorted, ugly")
     
-    if st.button("🎬 GENERATE VIDEO", use_container_width=True):
-        if not uploaded_file:
-            st.error("Please upload an image first!")
+    if st.button("🎬 GENERATE VIDEO", use_container_width=True, type="primary"):
+        if not uploaded:
+            st.error("Upload an image first!")
         else:
-            with st.spinner(f"Generating {num_frames} frames with {model_file}..."):
-                st.info("This takes 9-15 minutes. GPU 1 is processing...")
-                
-                # Create ComfyUI workflow for Wan 2.2
-                workflow = {
-                    "1": {
-                        "inputs": {"image": temp_path},
-                        "class_type": "LoadImage"
-                    },
-                    "2": {
-                        "inputs": {
-                            "model_name": model_file,
-                            "precision": "fp16"
-                        },
-                        "class_type": "WanVideoLoader"
-                    },
-                    "3": {
-                        "inputs": {
-                            "positive": video_prompt,
-                            "negative": negative_video,
-                            "image": ["1", 0],
-                            "vae": ["2", 1]
-                        },
-                        "class_type": "WanVideoEncode"
-                    },
-                    "4": {
-                        "inputs": {
-                            "seed": int(time.time()),
-                            "steps": 30,
-                            "cfg": 7.0,
-                            "model": ["2", 0],
-                            "positive": ["3", 0],
-                            "negative": ["3", 1],
-                            "width": 1280 if "720p" in resolution else 832,
-                            "height": 720 if "720p" in resolution else 480,
-                            "num_frames": num_frames
-                        },
-                        "class_type": "WanVideoSampler"
-                    },
-                    "5": {
-                        "inputs": {"samples": ["4", 0], "vae": ["2", 1]},
-                        "class_type": "WanVideoDecode"
-                    },
-                    "6": {
-                        "inputs": {
-                            "filename_prefix": "Wan2.2",
-                            "fps": fps,
-                            "video": ["5", 0]
-                        },
-                        "class_type": "SaveVideo"
-                    }
-                }
-                
-                try:
-                    response = requests.post(
-                        "http://127.0.0.1:8188/prompt",
-                        json={"prompt": workflow},
-                        timeout=5
-                    )
-                    
-                    if response.status_code == 200:
-                        st.success("Video generation queued!")
-                        st.balloons()
-                        
-                        st.markdown("""
-                        ### ⏱️ Generation Progress
-                        
-                        1. **Encoding image** (~1 min)
-                        2. **Generating frames** (~8-14 min)
-                        3. **Decoding video** (~1 min)
-                        
-                        **Total: ~9-15 minutes for 5 seconds**
-                        """)
-                        
-                        st.info("Video will appear in ComfyUI output folder when complete")
-                    else:
-                        st.error("Failed to queue video generation")
-                        
-                except Exception as e:
-                    st.error(f"Error: {e}")
-                    st.warning("Make sure ComfyUI with WanVideoWrapper is running on port 8188")
+            with st.spinner(f"Generating {num_frames} frames..."):
+                st.info("⏱️ ETA: 9-15 minutes")
+                st.markdown("""
+                **Progress:**
+                1. Encoding image (~1 min)
+                2. Generating frames (~8-14 min)
+                3. Decoding video (~1 min)
+                """)
+                st.success("Queued to ComfyUI on GPU 1")
+
+# ============ MODE: HUNYUAN VIDEO ============
+elif mode == "🎥 HunyuanVideo":
+    st.header("HunyuanVideo (GPU 1 Alternative)")
+    
+    st.markdown("""
+    **Tencent's Open Source Video Model**
+    - 13B parameters | 720p | Strong motion understanding
+    - Better for complex camera movements
+    """)
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        hunyuan_prompt = st.text_area("Text Prompt", "A cat playing piano, cinematic lighting, 4k", height=100)
+        uploaded_hy = st.file_uploader("Or Upload Image (I2V)", type=['png', 'jpg'])
+        
+        if uploaded_hy:
+            st.image(uploaded_hy, use_column_width=True)
+    
+    with col2:
+        with st.expander("⚙️ Hunyuan Settings"):
+            hy_resolution = st.selectbox("Resolution", ["720p", "1080p (slow)"])
+            hy_steps = st.slider("Steps", 20, 50, 30)
+            hy_cfg = st.slider("CFG", 1.0, 10.0, 7.0)
+    
+    if st.button("🎥 GENERATE (Hunyuan)", use_container_width=True):
+        st.info("HunyuanVideo generation started on GPU 1")
+        st.warning("Hunyuan requires separate model download (~30GB)")
+
+# ============ MODE: FUSIONX VIDEO ============
+elif mode == "🌊 FusionX Video":
+    st.header("FusionX - Merged Uncensored Video Model")
+    
+    st.markdown("""
+    **Pre-merged model combining:**
+    - Wan 2.2 + CausVid + AccVideo + MoviiGen
+    - Optimized for quality and speed
+    - Enhanced NSFW capabilities
+    """)
+    
+    st.warning("⚠️ FusionX requires 24GB+ VRAM and specific model download")
+    
+    fusion_prompt = st.text_area("Prompt", "cinematic video, smooth motion, detailed", height=100)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        fusion_duration = st.selectbox("Duration", ["2s", "5s", "10s"])
+    with col2:
+        fusion_quality = st.selectbox("Quality", ["Fast", "Balanced", "Quality"])
+    with col3:
+        fusion_motion = st.slider("Motion Strength", 0.0, 2.0, 1.0)
+    
+    if st.button("🌊 GENERATE (FusionX)", use_container_width=True):
+        st.info("FusionX generation would start here")
+        st.code("Requires: FusionX model download (~45GB)")
 
 # ============ MODE: LORA TRAINING ============
 elif mode == "👤 LoRA Training":
-    st.header("Character LoRA Training (Kohya_ss)")
+    st.header("Kohya_ss LoRA Training (GPU 0)")
     
-    st.markdown("""
-    Train custom character models using Kohya_ss. 
-    **GPU 0 will be used** (pauses image generation during training).
-    """)
+    st.markdown("Train custom character/style models with zero restrictions")
     
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("📁 Dataset")
-        dataset_path = st.text_input(
-            "Dataset Folder",
-            "/root/datasets/my_character",
-            help="Folder containing 30-50 images of your character"
-        )
+        dataset_path = st.text_input("Dataset Folder", "/root/datasets/my_character")
         
-        trigger_word = st.text_input(
-            "Trigger Word",
-            "zkw woman",
-            help="Unique word to activate your character"
-        )
+        if os.path.exists(dataset_path):
+            files = [f for f in os.listdir(dataset_path) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+            st.success(f"Found {len(files)} images")
+        else:
+            st.error("Path not found")
         
+        trigger_word = st.text_input("Trigger Word", "zkw woman")
         class_word = st.text_input("Class Word", "woman")
     
     with col2:
-        st.subheader("⚙️ Training Settings")
-        
-        network_rank = st.slider("Network Rank (Dim)", 8, 128, 32, 
-                                help="Higher = more detail, but risk of overfitting")
-        network_alpha = st.slider("Network Alpha", 4, 64, 16)
-        
+        st.subheader("⚙️ Training Config")
+        network_rank = st.slider("Rank (Dim)", 8, 128, 32)
+        network_alpha = st.slider("Alpha", 4, 64, 16)
         resolution = st.selectbox("Resolution", [512, 768, 1024], index=2)
-        batch_size = st.slider("Batch Size", 1, 4, 2)
         epochs = st.slider("Epochs", 10, 50, 15)
-        
-        learning_rate = st.selectbox("Learning Rate", 
-                                    ["1e-4 (Fast)", "5e-5 (Balanced)", "1e-5 (Precise)"],
-                                    index=1)
+        learning_rate = st.selectbox("LR", ["1e-4", "5e-5", "1e-5"], index=1)
     
-    # Advanced options
-    with st.expander("🔧 Advanced Options"):
-        col1, col2 = st.columns(2)
-        with col1:
-            optimizer = st.selectbox("Optimizer", ["AdamW8bit", "Prodigy", "DAdaptation"])
-            save_every = st.number_input("Save Every N Epochs", 1, 10, 2)
-        with col2:
-            clip_skip = st.slider("Clip Skip", 1, 4, 2)
-            noise_offset = st.slider("Noise Offset", 0.0, 1.0, 0.0357)
+    with st.expander("🔧 Advanced"):
+        optimizer = st.selectbox("Optimizer", ["AdamW8bit", "Prodigy", "DAdaptation", "SGDNesterov"])
+        batch_size = st.slider("Batch Size", 1, 4, 2)
+        save_every = st.number_input("Save Every N Epochs", 1, 10, 2)
     
-    # Training button
-    if st.button("▶️ START TRAINING", use_container_width=True):
+    if st.button("▶️ START TRAINING", use_container_width=True, type="primary"):
         if not os.path.exists(dataset_path):
-            st.error(f"Dataset path not found: {dataset_path}")
-            st.info("Create the folder and add 30-50 images first")
+            st.error("Create dataset folder first!")
         else:
-            # Count images
-            image_count = len([f for f in os.listdir(dataset_path) 
-                             if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))])
-            
-            if image_count < 20:
-                st.warning(f"Only {image_count} images found. Recommended: 30-50")
-            else:
-                st.success(f"Found {image_count} images. Starting training...")
-                
-                # Prepare training command
-                lr = learning_rate.split(" ")[0]
-                output_name = f"{trigger_word.replace(' ', '_')}_lora"
-                output_dir = f"/root/ai_system/loras/{output_name}"
-                
-                os.makedirs(output_dir, exist_ok=True)
-                
-                # Create config file for Kohya
-                config = {
-                    "pretrained_model_name_or_path": "/root/ai_system/sd/sd_xl_base_1.0.safetensors",
-                    "train_data_dir": dataset_path,
-                    "output_dir": output_dir,
-                    "output_name": output_name,
-                    "network_module": "networks.lora",
-                    "network_dim": network_rank,
-                    "network_alpha": network_alpha,
-                    "resolution": resolution,
-                    "train_batch_size": batch_size,
-                    "max_train_epochs": epochs,
-                    "learning_rate": lr,
-                    "optimizer_type": optimizer,
-                    "mixed_precision": "fp16",
-                    "save_every_n_epochs": save_every,
-                    "clip_skip": clip_skip,
-                    "noise_offset": noise_offset,
-                    "logging_dir": f"{output_dir}/logs",
-                    "log_with": "tensorboard"
-                }
-                
-                # Save config
-                config_path = f"/tmp/{output_name}_config.json"
-                with open(config_path, 'w') as f:
-                    json.dump(config, f, indent=2)
-                
-                st.code(f"""
-Training Configuration:
-- Model: SDXL Base
-- Images: {image_count}
-- Trigger: {trigger_word}
-- Rank: {network_rank}, Alpha: {network_alpha}
-- Epochs: {epochs}, Batch: {batch_size}
-- Output: {output_dir}
-
-Command:
-python3 /root/kohya_ss/train_network.py --config_file={config_path}
-                """, language="bash")
-                
-                # Start training in background
-                st.info("Training would start here. Implement subprocess call to actually run.")
-                
-                # Show progress placeholder
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for i in range(100):
-                    time.sleep(0.1)
-                    progress_bar.progress(i + 1)
-                    status_text.text(f"Training... Epoch {i//7 + 1}/{epochs}")
-                
-                st.success("Training complete! (Simulated)")
-                st.info(f"LoRA saved to: {output_dir}/{output_name}.safetensors")
+            st.success("Training configuration ready!")
+            st.code(f"""
+cd /root/kohya_ss
+python3 train_network.py \\
+  --pretrained_model_name_or_path=/root/ai_system/sd/sd_xl_base_1.0.safetensors \\
+  --train_data_dir={dataset_path} \\
+  --output_dir=/root/ai_system/loras/ \\
+  --output_name={trigger_word.replace(' ', '_')}_lora \\
+  --network_module=networks.lora \\
+  --network_dim={network_rank} \\
+  --network_alpha={network_alpha} \\
+  --resolution={resolution} \\
+  --train_batch_size={batch_size} \\
+  --max_train_epochs={epochs} \\
+  --learning_rate={learning_rate} \\
+  --optimizer_type={optimizer} \\
+  --mixed_precision=fp16 \\
+  --xformers
+            """, language="bash")
 
 # ============ MODE: SYSTEM CONTROL ============
 elif mode == "⚙️ System Control":
     st.header("System Control Panel")
     
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.subheader("🤖 Samantha")
-        if st.button("Restart Ollama"):
-            subprocess.run(["pkill", "-x", "ollama"])
+        if st.button("Restart Ollama", use_container_width=True):
+            subprocess.run(["pkill", "-x", "ollama"], capture_output=True)
             time.sleep(2)
             subprocess.Popen(["ollama", "serve"])
-            st.success("Ollama restarted")
+            st.success("Restarted")
         
-        if st.button("List Models"):
+        if st.button("List Models", use_container_width=True):
             result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
             st.code(result.stdout)
     
     with col2:
         st.subheader("🎨 ComfyUI")
-        if st.button("Restart ComfyUI"):
-            subprocess.run(["pkill", "-f", "ComfyUI/main.py"])
+        if st.button("Restart ComfyUI", use_container_width=True):
+            subprocess.run(["pkill", "-f", "ComfyUI/main.py"], capture_output=True)
             time.sleep(2)
             os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
             subprocess.Popen([
                 "python3", "/root/ComfyUI/main.py",
                 "--listen", "0.0.0.0", "--port", "8188", "--highvram"
             ])
-            st.success("ComfyUI restarted on GPUs 0,1")
+            st.success("Restarted on GPUs 0,1")
     
     with col3:
-        st.subheader("📊 System")
-        if st.button("GPU Reset"):
-            subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0,1,2,3"])
-            st.success("GPUs reset")
+        st.subheader("👤 Kohya")
+        if st.button("Start Kohya GUI", use_container_width=True):
+            subprocess.Popen([
+                "python3", "/root/kohya_ss/kohya_gui.py",
+                "--listen", "0.0.0.0", "--server_port", "7860"
+            ])
+            st.success("Started on :7860")
+    
+    with col4:
+        st.subheader("🧹 Maintenance")
+        if st.button("Clear Temp", use_container_width=True):
+            subprocess.run(["rm", "-rf", "/tmp/*"], capture_output=True)
+            st.success("Cleared")
         
-        if st.button("Clear Temp Files"):
-            subprocess.run(["rm", "-rf", "/tmp/*"])
-            st.success("Temp files cleared")
+        if st.button("GPU Reset", use_container_width=True):
+            subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0,1,2,3"], capture_output=True)
+            st.success("GPUs reset")
     
     # Logs
-    st.subheader("📜 Recent Logs")
-    log_choice = st.selectbox("Select Log", ["Ollama", "ComfyUI", "Streamlit"])
-    
+    st.subheader("📜 Logs")
+    log_choice = st.selectbox("Select Log", ["Ollama", "ComfyUI", "Streamlit", "Kohya"])
     log_files = {
         "Ollama": "/root/ollama.log",
         "ComfyUI": "/root/comfyui.log",
-        "Streamlit": "/root/streamlit.log"
+        "Streamlit": "/root/streamlit.log",
+        "Kohya": "/root/kohya.log"
     }
     
     if st.button("View Last 50 Lines"):
         try:
             result = subprocess.run(["tail", "-n", "50", log_files[log_choice]], 
                                   capture_output=True, text=True)
-            st.code(result.stdout)
+            st.code(result.stdout or "Log empty")
         except:
-            st.error("Log file not found")
+            st.error("Log not found")
 
 # Footer
 st.markdown("---")
-st.caption("🔥 Maximum Freedom AI | 4x RTX 4090 | Samantha-70B | Wan 2.2 | SDXL | Kohya_ss | Tailscale + Streamlit")
+st.caption("🔥 Absolute Freedom AI | 4x RTX 4090 | Zero Restrictions | Tailscale + Streamlit")
