@@ -63,10 +63,25 @@ if st.button("Start All Pipelines"):
 # LoRA / Embeddings Management
 # -------------------------------
 
-st.subheader("📂 LoRA & Face Embeddings")
-selected_lora = st.selectbox("Select LoRA", MODELS["loras"])
-selected_face = st.selectbox("Select Face Embedding", MODELS["face_embeddings"])
-st.info(f"LoRA: {selected_lora.name}, Embedding: {selected_face.name}")
+from modes.pipeline_manager import launch_diffusion, launch_video, train_character
+
+prompt = st.text_input("Enter character or scene prompt")
+
+if st.button("Generate Optimal Image"):
+    st.info("Generating...")
+    proc = launch_diffusion(prompt)
+    st.success(f"Diffusion started with auto-selected LoRA & embedding.")
+
+if st.button("Generate Optimal Video"):
+    st.info("Rendering...")
+    proc = launch_video(prompt)
+    st.success(f"Video pipeline started with auto-selected LoRA & embedding.")
+
+if st.button("Train Character"):
+    character = st.text_input("Enter character name for fine-tuning")
+    data_path = st.text_input("Path to dataset")
+    proc = train_character(character, data_path)
+    st.success(f"Training started on GPU {GPU_ASSIGN['training']}.")
 
 # -------------------------------
 # GPU Monitoring
