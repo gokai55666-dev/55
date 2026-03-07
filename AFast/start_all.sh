@@ -1,43 +1,29 @@
 #!/bin/bash
 set -euo pipefail
 
-echo "[INFO] Activating virtual environments and launching modules..."
+# Root path
+BASE="/root/samantha_ultimate"
 
-# GPU mapping
-export GPU0=0
-export GPU1=1
-export GPU2=2
-export GPU3=3
+echo "[INFO] Launching Samantha Ultimate AGI..."
 
-# Launch LLM (GPU0)
-echo "[INFO] Starting LLM module on GPU0..."
-source /root/samantha_ultimate/envs/llm/bin/activate
-CUDA_VISIBLE_DEVICES=$GPU0 python /root/samantha_ultimate/interfaces/modes/text_generation.py &
-LLM_PID=$!
+# Start LLM
+echo "[LLM] Starting chatbot..."
+CUDA_VISIBLE_DEVICES=0 bash -c "source $BASE/envs/llm/bin/activate && python $BASE/interfaces/modes/text_generation.py &"
 
-# Launch Diffusion / Image generation (GPU1)
-echo "[INFO] Starting Diffusion module on GPU1..."
-source /root/samantha_ultimate/envs/diffusion/bin/activate
-CUDA_VISIBLE_DEVICES=$GPU1 python /root/samantha_ultimate/interfaces/modes/image_generation.py &
-DIFF_PID=$!
+# Start Diffusion / Image
+echo "[DIFFUSION] Starting image generation..."
+CUDA_VISIBLE_DEVICES=1 bash -c "source $BASE/envs/diffusion/bin/activate && python $BASE/interfaces/modes/image_generation.py &"
 
-# Launch Video generation (GPU2)
-echo "[INFO] Starting Video module on GPU2..."
-source /root/samantha_ultimate/envs/diffusion/bin/activate
-CUDA_VISIBLE_DEVICES=$GPU2 python /root/samantha_ultimate/interfaces/modes/video_generation.py &
-VIDEO_PID=$!
+# Start Video Generation
+echo "[VIDEO] Starting video generation..."
+CUDA_VISIBLE_DEVICES=2 bash -c "source $BASE/envs/video/bin/activate && python $BASE/interfaces/modes/video_generation.py &"
 
-# Launch Training module (GPU3)
-echo "[INFO] Starting Training module on GPU3..."
-source /root/samantha_ultimate/envs/training/bin/activate
-CUDA_VISIBLE_DEVICES=$GPU3 python /root/samantha_ultimate/interfaces/modes/model_training.py &
-TRAIN_PID=$!
+# Start Model Training
+echo "[TRAINING] Starting LoRA / DreamBooth training..."
+CUDA_VISIBLE_DEVICES=3 bash -c "source $BASE/envs/training/bin/activate && python $BASE/interfaces/modes/model_training.py &"
 
-# Launch Agent orchestration (CPU + optional GPU)
-echo "[INFO] Launching Agent Controller..."
-source /root/samantha_ultimate/envs/agent/bin/activate
-python /root/samantha_ultimate/interfaces/modes/agent_controller.py &
-AGENT_PID=$!
+# Start Embeddings Service
+echo "[EMBEDDINGS] Face embeddings pipeline..."
+CUDA_VISIBLE_DEVICES=1 bash -c "source $BASE/envs/embeddings/bin/activate && python $BASE/interfaces/modes/embeddings.py &"
 
-echo "[INFO] All modules started successfully!"
-echo "LLM PID: $LLM_PID | Diffusion PID: $DIFF_PID | Video PID: $VIDEO_PID | Training PID: $TRAIN_PID | Agent PID: $AGENT_PID"
+echo "[INFO] All services started. Check logs for details."
