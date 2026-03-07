@@ -1,108 +1,111 @@
 #!/usr/bin/env python3
+"""
+ZTE AI Frontend (Tailscale-ready)
+Auto-handles Ollama, free port selection, and desktop GUI.
+"""
+
+import os
 import subprocess
 import socket
 import time
-import os
 import sys
-
-# ------------------------------
-# CONFIG
-# ------------------------------
-OLLAMA_CMD = "/usr/local/bin/ollama"  # change if your Ollama binary is elsewhere
-OLLAMA_PORT = 11434
-GUI_HOST = "0.0.0.0"  # bind to all interfaces for Tailscale
-GUI_PORT = 7860
-
-# ------------------------------
-# CHECK & START OLLAMA
-# ------------------------------
-def is_port_open(host, port):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        s.connect((host, port))
-        s.close()
-        return True
-    except:
-        return False
-
-if not is_port_open("127.0.0.1", OLLAMA_PORT):
-    print(f"[INFO] Ollama not running. Starting Ollama on port {OLLAMA_PORT}...")
-    try:
-        subprocess.Popen([OLLAMA_CMD, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        time.sleep(5)  # give it a few seconds to start
-    except FileNotFoundError:
-        print(f"[ERROR] Cannot find Ollama at {OLLAMA_CMD}. Install it and try again.")
-        sys.exit(1)
-else:
-    print("[INFO] Ollama already running.")
-
-# ------------------------------
-# CHECK DEPENDENCIES
-# ------------------------------
-try:
-    import fastapi
-    import uvicorn
-    from fastapi import Form
-except ImportError:
-    print("[INFO] Installing missing Python dependencies...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "fastapi", "uvicorn", "python-multipart"])
-    import fastapi
-    import uvicorn
-    from fastapi import Form
+from pathlib import Path
 
 try:
     import gradio as gr
-except ImportError:
-    print("[INFO] Installing Gradio...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "gradio"])
-    import gradio as gr
+except ModuleNotFoundError:
+    print("[ERROR] Gradio not installed. Run: pip install gradio python-multipart")
+    sys.exit(1)
 
-# ------------------------------
-# FASTAPI + GRADIO FRONTEND
-# ------------------------------
-app = fastapi.FastAPI()
 
-@app.post("/api/generate_text")
-async def gen_text_endpoint(prompt: str = Form(...)):
-    # call Ollama
+# --- CONFIG ---
+PORT_START = 7860
+PORT_END = 7900
+OLLSERVE_CMD = "ollama serve"
+AI_FRONTEND_NAME = "ZTE AI Frontend"
+DESKTOP_MODE = True  # change to False to run CLI only
+
+
+# --- UTILITY FUNCTIONS ---
+
+def get_free_port(start=PORT_START, end=PORT_END):
+    """Find first free TCP port"""
+    for port in range(start, end + 1):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('0.0.0.0', port)) != 0:
+                return port
+    raise RuntimeError(f"No free port found in range {start}-{end}")
+
+
+def tailscale_ip():
+    """Get Tailscale IPv4"""
     try:
-        result = subprocess.run([OLLAMA_CMD, "query", "llama3.1:70b-instruct-q4_K_M", prompt],
-                                capture_output=True, text=True)
-        return {"output": result.stdout.strip()}
-    except Exception as e:
-        return {"error": str(e)}
+        ip = subprocess.check_output(["tailscale", "ip", "-4"]).decode().strip()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
-# Placeholder for image/video endpoints
-@app.post("/api/generate_image")
-async def gen_image_endpoint(prompt: str = Form(...)):
-    return {"output": "[Image generation placeholder]"}
 
-@app.post("/api/generate_video")
-async def gen_video_endpoint(prompt: str = Form(...)):
-    return {"output": "[Video generation placeholder]"}
+def ensure_ollama_running():
+    """Start Ollama if not running"""
+    # Check if process exists
+    result = subprocess.run(["pgrep", "-f", "ollama"], capture_output=True)
+    if result.stdout:
+        print("[INFO] Ollama already running.")
+        return
+    print("[INFO] Starting Ollama...")
+    subprocess.Popen(OLLSERVE_CMD.split())
+    time.sleep(5)  # wait for Ollama to initialize
 
-# ------------------------------
-# LAUNCH DESKTOP GUI OVER TAILSCALE
-# ------------------------------
-def launch_gui():
+
+# --- FRONTEND LOGIC ---
+
+def create_demo():
+    """Create simple demo with text input"""
     with gr.Blocks() as demo:
-        gr.Markdown("## ZTE AI Frontend (Tailscale)")
-        txt_input = gr.Textbox(label="Your Input")
-        output = gr.Textbox(label="AI Output")
+        gr.Markdown(f"# {AI_FRONTEND_NAME}")
+        input_text = gr.Textbox(label="Your Input", placeholder="Type here...")
+        output_text = gr.Textbox(label="AI Output")
         btn = gr.Button("Send")
 
-        def handle_input(prompt):
-            import requests
+        def handle_input(txt):
+            # Send input to Ollama API
             try:
-                r = requests.post(f"http://127.0.0.1:{OLLAMA_PORT}/api/generate_text", data={"prompt": prompt})
-                return r.json().get("output", "No output")
+                import requests
+                resp = requests.post("http://127.0.0.1:11434/api/completions", json={
+                    "model": "llama3.1:70b-instruct-q4_K_M",
+                    "prompt": txt,
+                    "max_tokens": 256
+                })
+                return resp.json().get("completion", "No response")
             except Exception as e:
-                return f"Error: {str(e)}"
+                return f"[ERROR] {e}"
 
-        btn.click(handle_input, txt_input, output)
+        btn.click(handle_input, inputs=input_text, outputs=output_text)
 
-    demo.launch(server_name=GUI_HOST, server_port=GUI_PORT)
+    return demo
 
+
+def launch_gui():
+    host_ip = tailscale_ip()
+    port = get_free_port()
+    print(f"[INFO] Launching frontend at http://{host_ip}:{port}")
+    demo = create_demo()
+    demo.launch(server_name=host_ip, server_port=port, share=False)
+
+
+# --- MAIN ---
 if __name__ == "__main__":
-    print(f"[INFO] Launching Desktop GUI at http://{GUI_HOST}:{GUI_PORT}")
-    launch_gui()
+    ensure_ollama_running()
+    if DESKTOP_MODE:
+        launch_gui()
+    else:
+        print(f"{AI_FRONTEND_NAME} CLI ready. Type input below:")
+        while True:
+            try:
+                prompt = input(">> ")
+                demo_response = create_demo().process(prompt)
+                print(demo_response)
+            except KeyboardInterrupt:
+                print("\n[INFO] Exiting...")
+                break
