@@ -3,6 +3,7 @@ set -euo pipefail
 
 # ==============================================
 # Samantha Full Installer (NSFW Ollama Model)
+# Stratified LFS Download + Progress Bars
 # ==============================================
 
 AI_SYSTEM="/root/ai_system"
@@ -15,7 +16,7 @@ cd "$AI_SYSTEM"
 
 echo "[INFO] Starting Samantha installation..." | tee -a "$LOG_FILE"
 
-# -------------------- 0️⃣ Optional: Clean zombie processes --------------------
+# -------------------- 0️⃣ Clean zombie processes --------------------
 ZOMBIES=$(ps -eo stat,pid,ppid,cmd | grep -w Z || true)
 if [ -n "$ZOMBIES" ]; then
     echo "[INFO] Found zombie processes. Attempting cleanup..." | tee -a "$LOG_FILE"
@@ -24,12 +25,12 @@ else
     echo "[INFO] No zombie processes found." | tee -a "$LOG_FILE"
 fi
 
-# -------------------- 1️⃣ Clone or update the repo --------------------
+# -------------------- 1️⃣ Clone or update repo --------------------
 if [ ! -d "$MODEL_NAME" ]; then
     echo "[INFO] Cloning Samantha repo..." | tee -a "$LOG_FILE"
     git clone https://huggingface.co/TheBloke/$MODEL_NAME
 else
-    echo "[INFO] Samantha repo exists. Pulling latest changes..." | tee -a "$LOG_FILE"
+    echo "[INFO] Repo exists. Pulling latest changes..." | tee -a "$LOG_FILE"
     git -C "$MODEL_NAME" pull
 fi
 
@@ -42,38 +43,51 @@ if [ -d ".git/lfs/incomplete" ]; then
     git lfs prune | tee -a "$LOG_FILE"
 fi
 
-# -------------------- 3️⃣ Configure Git LFS for parallel downloads --------------------
+# -------------------- 3️⃣ Configure Git LFS --------------------
 echo "[INFO] Configuring Git LFS for parallel downloads..." | tee -a "$LOG_FILE"
 git config lfs.concurrenttransfers 14
 git config lfs.activitytimeout 3600
 
-# -------------------- 4️⃣ Fetch all LFS objects safely --------------------
-echo "[INFO] Fetching missing LFS objects (no duplicates)..." | tee -a "$LOG_FILE"
+# -------------------- 4️⃣ Stratified LFS download with progress --------------------
+echo "[INFO] Starting stratified LFS download..." | tee -a "$LOG_FILE"
 
-# Fetch only missing files
-for FILE in $(git lfs ls-files -n); do
-    if [ ! -f "$FILE" ]; then
-        echo "[INFO] Fetching $FILE..." | tee -a "$LOG_FILE"
-        git lfs fetch --include="$FILE"
-    else
+# 1️⃣ List all files with size
+FILES_AND_SIZES=$(git lfs ls-files -l | awk '{print $2 " " $1}' | sort -nrk2)
+
+for LINE in $FILES_AND_SIZES; do
+    FILE=$(echo $LINE | awk '{print $1}')
+    # Skip if file already exists
+    if [ -f "$FILE" ]; then
         echo "[INFO] $FILE already downloaded. Skipping..." | tee -a "$LOG_FILE"
+        continue
     fi
+    echo "[INFO] Downloading $FILE..." | tee -a "$LOG_FILE"
+
+    # Show a pseudo progress with pv (needs pv installed)
+    git lfs fetch --include="$FILE" 2>&1 | while read -r l; do
+        if [[ "$l" =~ ([0-9]+)% ]]; then
+            echo -ne "\rProgress: ${BASH_REMATCH[1]}% for $FILE"
+        fi
+    done
+    echo ""  # newline after each file
 done
 
-# Checkout downloaded LFS objects
+echo "[INFO] Stratified LFS download complete." | tee -a "$LOG_FILE"
+
+# Checkout all LFS objects
 echo "[INFO] Checking out LFS objects..." | tee -a "$LOG_FILE"
 git lfs checkout
 
-# -------------------- 5️⃣ Wait until all 14 GGUF parts exist --------------------
-echo "[INFO] Waiting for all 14 GGUF parts to finish downloading..." | tee -a "$LOG_FILE"
+# -------------------- 5️⃣ Wait for all 14 GGUF parts --------------------
+echo "[INFO] Waiting for all 14 GGUF parts..." | tee -a "$LOG_FILE"
 while [ "$(ls *.gguf 2>/dev/null | wc -l)" -lt 14 ]; do
     COUNT=$(ls *.gguf 2>/dev/null | wc -l)
     echo "[INFO] Downloaded $COUNT/14 files. Waiting..." | tee -a "$LOG_FILE"
     sleep 10
 done
-echo "[INFO] All 14 GGUF parts downloaded!" | tee -a "$LOG_FILE"
+echo "[INFO] All 14 GGUF parts are present." | tee -a "$LOG_FILE"
 
-# -------------------- 6️⃣ Create Ollama NSFW model --------------------
+# -------------------- 6️⃣ Build Ollama NSFW model --------------------
 cd "$AI_SYSTEM"
 if [ ! -f "$MODEL_FILE" ]; then
     echo "[INFO] Creating Ollama model file..." | tee -a "$LOG_FILE"
