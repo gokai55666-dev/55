@@ -528,6 +528,35 @@ elif mode == "⚙️ System Control":
         if st.button("GPU Reset", use_container_width=True):
             subprocess.run(["nvidia-smi", "--gpu-reset", "-i", "0,1,2,3"], capture_output=True)
             st.success("GPUs reset")
+
+from samantha_agent import SamanthaAgent
+
+# Initialize Samantha
+models_paths = {
+    "image": "/root/models/image",
+    "text": "/root/models/text",
+    "video": "/root/models/video",
+    "lora": "/root/models/lora"
+}
+samantha = SamanthaAgent(models_paths)
+
+# Streamlit interface
+import streamlit as st
+
+st.title("Samantha AI")
+
+task_type = st.selectbox("Select task type", ["text", "image", "video"])
+prompt = st.text_area("Enter your prompt")
+lora = st.selectbox("Select LoRA (optional)", ["None"] + ["LoRA1", "LoRA2"])  # update with actual LoRAs
+
+if st.button("Run"):
+    result = samantha.run(task_type, prompt, lora if lora != "None" else None)
+    if task_type == "text":
+        st.write(result)
+    elif task_type == "image":
+        st.image(result)
+    elif task_type == "video":
+        st.video(result)
     
     # Logs
     st.subheader("📜 Logs")
