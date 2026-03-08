@@ -1,0 +1,38 @@
+# LLM
+vllm
+transformers
+torch
+accelerate  # for GPU efficiency
+sentencepiece  # often required for WAN 2.x models
+
+# WAN 2.1 / 2.2 specific dependencies
+safetensors
+bitsandbytes  # if using 4bit/8bit quantized models
+
+# Diffusion
+diffusers[torch]
+accelerate
+xformers  # memory-efficient attention
+einops
+Pillow
+opencv-python
+
+# NSFW / LoRA
+peft
+datasets
+torchvision
+safetensors  # for LoRA models
+
+# ComfyUI (optional, only if you wrap it)
+comfyui  # assumes PyPI package exists; else manual install instructions
+
+# Web / API
+fastapi
+uvicorn
+flask
+waitress
+
+# Misc / utils
+pydantic
+requests
+PyYAML  # for configs
