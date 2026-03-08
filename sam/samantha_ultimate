@@ -1,0 +1,82 @@
+#!/bin/bash
+# launch_samantha_ready.sh
+# Full Samantha workflow launcher
+
+BASE_DIR=~/samantha_ultimate
+SRC_DIR="$BASE_DIR/samantha_ultimate_src"
+MODEL_DIR="$BASE_DIR/config/models"
+
+echo "[*] Ensuring folder structure..."
+mkdir -p "$SRC_DIR"
+mkdir -p "$MODEL_DIR/WAN2.2"
+mkdir -p "$MODEL_DIR/SDXL"
+mkdir -p "$BASE_DIR/logs"
+mkdir -p ~/ai_frontend/logs
+
+# ---------------------------
+# 1️⃣ Download core files
+# ---------------------------
+echo "[*] Downloading core Samantha files..."
+cd "$SRC_DIR"
+wget -q --show-progress https://raw.githubusercontent.com/gokai55666-dev/55/main/AFast/samantha_core.py -O samantha_core.py
+wget -q --show-progress https://raw.githubusercontent.com/gokai55666-dev/55/main/AFast/samantha_api.py -O samantha_api.py
+
+# ---------------------------
+# 2️⃣ Check model files
+# ---------------------------
+echo "[*] Checking WAN2.2 model..."
+if [ ! -f "$MODEL_DIR/WAN2.2/WAN2.2.safetensors" ]; then
+    echo "[!] WAN2.2.safetensors missing. Place the file in $MODEL_DIR/WAN2.2/"
+fi
+
+echo "[*] Checking SDXL model..."
+if [ ! -f "$MODEL_DIR/SDXL/SDXL.safetensors" ]; then
+    echo "[!] SDXL.safetensors missing. Place the file in $MODEL_DIR/SDXL/"
+fi
+
+# ---------------------------
+# 3️⃣ Kill previous processes
+# ---------------------------
+echo "[*] Killing old processes..."
+pkill -f "uvicorn" 2>/dev/null
+pkill -f "ollama" 2>/dev/null
+
+# ---------------------------
+# 4️⃣ Patch samantha_core.py for real model inference
+# ---------------------------
+echo "[*] Patching samantha_core.py to use real model..."
+cat <<'EOF' > "$SRC_DIR/samantha_core.py"
+from pathlib import Path
+import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+class SamanthaSupertool:
+    def __init__(self, llm_model, diffusion_model):
+        self.llm_path = Path(llm_model)
+        self.diffusion_path = Path(diffusion_model)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.llm_path)
+        self.model = AutoModelForCausalLM.from_pretrained(self.llm_path, device_map="auto")
+
+    def chat(self, prompt):
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        outputs = self.model.generate(**inputs, max_new_tokens=200)
+        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+EOF
+
+# ---------------------------
+# 5️⃣ Start FastAPI backend
+# ---------------------------
+echo "[*] Starting Samantha FastAPI backend..."
+nohup uvicorn samantha_api:app --host 0.0.0.0 --port 8080 > "$BASE_DIR/logs/backend.log" 2>&1 &
+
+# ---------------------------
+# 6️⃣ Start Streamlit frontend
+# ---------------------------
+echo "[*] Starting Streamlit frontend..."
+cd ~/ai_frontend
+nohup streamlit run ai_frontend.py > ~/ai_frontend/logs/frontend.log 2>&1 &
+
+echo "[*] Samantha workflow started!"
+echo "[*] Backend logs: $BASE_DIR/logs/backend.log"
+echo "[*] Frontend logs: ~/ai_frontend/logs/frontend.log"
+echo "[*] Open your Streamlit URL (http://<your-server-ip>:8501) to interact"
