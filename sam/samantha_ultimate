@@ -80,3 +80,7 @@ echo "[*] Samantha workflow started!"
 echo "[*] Backend logs: $BASE_DIR/logs/backend.log"
 echo "[*] Frontend logs: ~/ai_frontend/logs/frontend.log"
 echo "[*] Open your Streamlit URL (http://<your-server-ip>:8501) to interact"
+
+
+
+
