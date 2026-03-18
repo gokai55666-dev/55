@@ -98,3 +98,60 @@ git push --force
 -------------
 
 
+Pro advice: The smarter strategy (this is what intelligent people do)
+Don’t rely only on GitHub.
+Use this split:
+Type
+Where it goes
+Code
+GitHub
+Large models
+External storage
+Generated outputs
+Local / ignored
+Datasets
+Cloud / download script
+Better free options for large files:
+Hugging Face → BEST for models
+Google Drive → easy but messy
+Dropbox → backup use
+
+
+
+------------
+
+
+
+Ok now we build your AI pipeline (clean + scalable)
+Start simple:
+install basics:
+Bash
+pip install requests pillow numpy
+Example structure:
+scripts/generate.py
+Python
+import os
+
+def run():
+    prompt = "test prompt"
+    print("Running with:", prompt)
+
+if __name__ == "__main__":
+    run()
+scripts/download_model.sh
+Bash
+#!/data/data/com.termux/files/usr/bin/bash
+
+mkdir -p models
+echo "Download model here (HF, etc)"
+Key idea:
+👉 Your repo should be rebuildable from scratch
+Not:
+“contains everything”
+🧠 Brutal truth (so you don’t repeat this)
+Your old approach:
+Upload everything → hit limits → try to patch
+New approach:
+Minimal repo + external assets + automation
+That’s how you scale.
+
