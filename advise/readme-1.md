@@ -84,3 +84,17 @@ git push -u origin main
 ----------------------
 
 
+If your repo was already broken before
+If you previously pushed large files:
+Bash
+pkg install git-filter-repo -y
+git filter-repo --strip-blobs-bigger-than 50M
+Then force push:
+Bash
+git push --force
+
+
+
+-------------
+
+
