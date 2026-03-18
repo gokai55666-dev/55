@@ -125,4 +125,88 @@ If `pkg update && pkg upgrade` still gives “Waiting for cache lock,” then:
 
 ---
 
-If you want, I can turn all this into a polished cheat-sheet or script you can run automatically. Do you want me to prepare that for you?
+If you want, I can turn all this into a polished cheat-sheet or script you can run automatically. Do you want me to prepare that for you? 
+
+yes...
+
+----
+
+here:
+
+Here’s how you can get Git LFS working properly *in Termux* and clean up those apt/dpkg lock issues safely — without risking system corruption.
+
+---
+
+## ✅ 1. Fixing apt/dpkg lock files
+
+You tried removing lock files manually. That can help *if you're sure nothing else is using apt/dpkg*, but you need to do a few extra steps after removing locks to ensure consistency.  
+
+Here are safe steps:
+
+```bash
+# Make sure no apt/dpkg process is running:
+ps aux | grep apt
+ps aux | grep dpkg
+
+# If you find any apt or dpkg process that's not an innocent grep:
+kill <PID>
+
+# Now remove the locks:
+rm -f $PREFIX/var/lib/dpkg/lock
+rm -f $PREFIX/var/lib/dpkg/lock-frontend
+rm -f $PREFIX/var/cache/apt/archives/lock
+rm -f $PREFIX/var/lib/apt/lists/lock
+
+# Fix package states:
+dpkg --configure -a
+
+# Clean and update packages:
+apt clean
+pkg update
+pkg upgrade
+```
+
+This is similar to what both Termux users and Ubuntu users do to fix “Waiting for cache lock” and “Unable to acquire dpkg frontend lock” errors. ([reddit.com](https://www.reddit.com/r/termux/comments/1b67gs0?utm_source=openai))
+
+---
+
+## ⚙️ 2. Making Git LFS run properly in Termux
+
+You already have Git LFS (`git-lfs/3.7.1`) installed in Termux, which is good. ([reddit.com](https://www.reddit.com/r/termux/comments/1lf3wmc?utm_source=openai)) Here’s what you need to double-check and fix if it's not behaving as expected:
+
+1. **Install hooks**: Run `git lfs install`.  
+   This sets up the necessary Git hook scripts (like pre-push, post-checkout) so LFS works automatically.  
+
+2. **Track file types**:  
+   In your repo folder, do `git lfs track "*.ext"` for any file types you want LFS to manage (like large images, binaries). It writes patterns to `.gitattributes`.  
+
+3. **Use `git lfs pull` when cloning/pulling**:  
+   Just `git pull` won’t fetch LFS content unless the files are pointers.  
+   `git lfs pull` ensures the actual files are downloaded.  
+
+4. **File system permissions and execution flags**:  
+   - If your repo resides in shared storage (like `/sdcard/...`), Android often mounts that with **noexec**, so hooks/scripts may not run.  
+   - Best to keep the Git repo inside Termux’s home directory (`$HOME` in Termux) so execute permissions behave normally.  
+   - If you do store on shared storage, always run things explicitly via `bash script.sh` instead of `./script.sh`. ([medium.com](https://medium.com/%40askar.zhakenov/obsidian-git-sync-on-android-with-termux-and-lfs-c5bb05e0f1cc?utm_source=openai))
+
+---
+
+## 🔧 3. Avoid running multiple package managers
+
+Don’t run `apt`, `pkg`, or `dpkg` at the same time (or in parallel Termux sessions). One process must complete before you start another. Otherwise, you’ll get lock file issues. ([reddit.com](https://www.reddit.com/r/termux/comments/1b67gs0?utm_source=openai))
+
+---
+
+## ⚠️ 4. When removing lock files isn't enough
+
+Sometimes, removing lock files alone doesn’t resolve the issue if a process is hung or interrupted badly. In such cases:
+
+- Kill any hanging processes (`kill PID`).
+- Use `dpkg --configure -a`.
+- `apt clean` and `pkg update` to restore normal state.  
+
+All this should bring your package system back in sync. ([reddit.com](https://www.reddit.com/r/termux/comments/hbe075?utm_source=openai))
+
+---
+
+If you want, I can walk you through exactly setting this up from scratch — Git LFS in Termux with proper paths, hooks, etc. Do you want to go through that?
