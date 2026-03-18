@@ -1,0 +1,66 @@
+Let’s break down what’s happening with your Termux installation and address the issues you’re facing.
+
+### 1. **Understanding the "Waiting for Cache Lock" Warning**
+The warning messages you see, especially:
+```
+Waiting for cache lock: Could not get lock /data/data/com.termux/files/usr/var/lib/dpkg/lock
+```
+indicate that another process is trying to use the package manager at the same time, preventing the current operation from completing. This can happen if:
+
+- A previous installation or update process is still running.
+- You’re trying to run multiple `apt` commands at once.
+
+### 2. **Fixing the Cache Lock Issue**
+To resolve this issue, follow these steps:
+
+#### Step 1: **Kill the Process**
+You can check for running `apt` processes using:
+```bash
+ps aux | grep apt
+```
+
+If you find any processes, you may need to kill them:
+```bash
+kill -9 <PID>  # Replace with the actual Process ID
+```
+
+#### Step 2: **Remove Lock Files** (if necessary)
+If killing the processes doesn't help, or you can’t find any relevant processes, you can delete the lock file that’s causing the blockage:
+```bash
+rm /data/data/com.termux/files/usr/var/lib/dpkg/lock
+rm /data/data/com.termux/files/usr/var/lib/dpkg/lock-frontend
+```
+
+### 3. **Running Update and Upgrade**
+After resolving the lock issue, try running the update and upgrade again:
+```bash
+pkg update && pkg upgrade -y
+```
+
+### 4. **Installing Dependencies Again**
+Once your system is updated, you can reinstall or update Git and other necessary packages:
+```bash
+pkg install git git-lfs
+```
+
+### 5. **Configuration**
+After reinstalling Git, re-run these commands to set up your configuration:
+```bash
+git config --global user.email "gokai556660@gmail.com"
+git config --global user.name "Kai Smith"
+```
+
+You can check your configuration with:
+```bash
+git config --global --list
+```
+
+### 6. **Using Your PAT**
+When you run Git commands that require authentication, make sure you enter your GitHub username and the Personal Access Token (PAT) as the password.
+
+### Final Notes
+If you're still experiencing issues after trying these steps:
+- Ensure that any commands you issue are fully typed and check for trailing spaces or typos.
+- Provide the specific error messages if things still don't work; that will help diagnose the issue further.
+
+Let me know how this goes or if you encounter any other specific problems!
