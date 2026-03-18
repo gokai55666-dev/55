@@ -155,3 +155,10 @@ New approach:
 Minimal repo + external assets + automation
 That’s how you scale.
 
+
+-------------- 
+
+Now Rebuild your exact repo from scratch (clean + working)
+Set up HuggingFace model pipeline
+Create a full AI workflow (LLM + image gen + logging).
+
